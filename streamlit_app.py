@@ -61,6 +61,8 @@ def detect_council(df):
     if 'burwood' in route: return 'burwood'
     if 'woollahra' in route: return 'woollahra'
     if 'bayside' in route: return 'bayside'
+    if 'innerwest' in route: return 'innerwest'
+    if 'penrith' in route: return 'penrith'
     if 'randwick' in route: return 'randwick'
     return 'unknown'
 
@@ -327,6 +329,59 @@ def build_bayside(ws, df_data, route_name):
     ws.column_dimensions['E'].width = 14
     ws.freeze_panes = 'A4'; ws.auto_filter.ref = f'A3:{get_column_letter(num_cols)}3'
 
+col_map_innerwest = {
+    'address': 'Address',
+    'driver_provided_internal_notes': 'Collected',
+}
+
+def build_innerwest(ws, df_data, route_name):
+    df_out = df_data[list(col_map_innerwest.keys())].rename(columns=col_map_innerwest).copy()
+    headers = list(col_map_innerwest.values()); num_cols = len(headers)
+    total_collected = pd.to_numeric(df_out['Collected'], errors='coerce').fillna(0).sum()
+    ws.row_dimensions[1].height = 28
+    ws.merge_cells(f'A1:{get_column_letter(num_cols)}1')
+    c = ws['A1']; c.value = f'  {route_name}'
+    c.fill = fill(GRN_DARK); c.font = Font(name='Calibri', bold=True, size=14, color=WHITE)
+    c.alignment = Alignment(horizontal='left', vertical='center')
+    ws.row_dimensions[2].height = 16
+    ws.merge_cells(f'A2:{get_column_letter(num_cols)}2')
+    c = ws['A2']
+    c.value = (f'  Generated: {datetime.date.today().strftime("%d/%m/%Y")}   |   '
+               f'Total stops: {len(df_out)}   |   Total collected: {int(total_collected)}')
+    c.fill = fill(GRN_MID); c.font = Font(name='Calibri', size=9, color=WHITE, italic=True)
+    c.alignment = Alignment(horizontal='left', vertical='center')
+    ws.row_dimensions[3].height = 18
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(row=3, column=ci, value=h)
+        c.fill = fill(GRN_LIGHT); c.font = font(bold=True, sz=10, color=GRN_DARK)
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        c.border = Border(bottom=Side(style='medium', color=GRN_MID))
+    for ri, row in df_out.iterrows():
+        excel_row = ri + 4; ws.row_dimensions[excel_row].height = 13
+        row_fill = fill(GRN_ALT) if ri % 2 == 1 else fill(WHITE)
+        for ci, (col, val) in enumerate(row.items(), 1):
+            c = ws.cell(row=excel_row, column=ci, value=val)
+            c.fill = row_fill; c.font = font(sz=9); c.border = thin_border('C8E6C9')
+            if col == 'Collected':
+                c.alignment = Alignment(horizontal='center', vertical='center')
+            else:
+                c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+    total_row = len(df_out) + 4; ws.row_dimensions[total_row].height = 16
+    collected_col = headers.index('Collected') + 1
+    for ci in range(1, num_cols + 1):
+        c = ws.cell(row=total_row, column=ci)
+        c.fill = fill(TOTAL_BG); c.border = Border(top=Side(style='medium', color=GRN_MID))
+        if ci == 1:
+            c.value = 'TOTALS'; c.font = font(bold=True, sz=10, color=GRN_DARK)
+            c.alignment = Alignment(horizontal='left', vertical='center')
+        elif ci == collected_col:
+            c.value = f'=SUM({get_column_letter(ci)}4:{get_column_letter(ci)}{total_row-1})'
+            c.font = font(bold=True, sz=10, color=GRN_DARK)
+            c.alignment = Alignment(horizontal='center', vertical='center')
+    ws.column_dimensions['A'].width = col_width(df_out['Address'], 'Address', cap=60)
+    ws.column_dimensions['B'].width = 11
+    ws.freeze_panes = 'A4'; ws.auto_filter.ref = f'A3:{get_column_letter(num_cols)}3'
+
 def process_burwood(df):
     route_name = df['route'].iloc[0]
     wb = Workbook(); ws = wb.active; ws.title = route_name[:31]
@@ -351,6 +406,28 @@ def process_csv(df):
             pd.to_numeric(df['driver_provided_recipient_notes'], errors='coerce').fillna(0)
         )
         return process_burwood(df), 'woollahra'
+    elif council == 'penrith':
+        df = df.copy()
+        df['driver_provided_internal_notes'] = (
+            pd.to_numeric(df['driver_provided_internal_notes'], errors='coerce').fillna(0) +
+            pd.to_numeric(df['driver_provided_recipient_notes'], errors='coerce').fillna(0)
+        )
+        route_name = df['route'].iloc[0]
+        wb = Workbook(); ws_p = wb.active; ws_p.title = route_name[:31]
+        build_innerwest(ws_p, df, route_name)
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+        return [(buf, f'{route_name}.xlsx', len(df))], 'penrith'
+    elif council == 'innerwest':
+        df = df.copy()
+        df['driver_provided_internal_notes'] = (
+            pd.to_numeric(df['driver_provided_internal_notes'], errors='coerce').fillna(0) +
+            pd.to_numeric(df['driver_provided_recipient_notes'], errors='coerce').fillna(0)
+        )
+        route_name = df['route'].iloc[0]
+        wb = Workbook(); ws_i = wb.active; ws_i.title = route_name[:31]
+        build_innerwest(ws_i, df, route_name)
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+        return [(buf, f'{route_name}.xlsx', len(df))], 'innerwest'
     elif council == 'bayside':
         df = df.copy()
         df['driver_provided_internal_notes'] = (
