@@ -63,6 +63,8 @@ def detect_council(df):
     if 'bayside' in route: return 'bayside'
     if 'innerwest' in route: return 'innerwest'
     if 'penrith' in route: return 'penrith'
+    if 'bankstown' in route: return 'bankstown'
+    if 'strathfield' in route: return 'strathfield'
     if 'randwick' in route: return 'randwick'
     return 'unknown'
 
@@ -382,6 +384,69 @@ def build_innerwest(ws, df_data, route_name):
     ws.column_dimensions['B'].width = 11
     ws.freeze_panes = 'A4'; ws.auto_filter.ref = f'A3:{get_column_letter(num_cols)}3'
 
+def build_bankstown(ws, df_out, title, label_type):
+    if label_type == 'ipad':
+        HDR_BG, HDR_LIGHT, ALT, INFO_BG = NAVY, LIGHT_BLUE, ALT_ROW, MID_BLUE
+    else:
+        HDR_BG, HDR_LIGHT, ALT, INFO_BG = ORANGE, ORANGE_HDR, LIGHT_ORANGE, ORANGE_MID
+    headers = list(df_out.columns); num_cols = len(headers)
+    total_booked = pd.to_numeric(df_out['Booked'], errors='coerce').fillna(0).sum()
+    total_collected = pd.to_numeric(df_out['Collected'], errors='coerce').fillna(0).sum()
+    ws.row_dimensions[1].height = 28
+    ws.merge_cells(f'A1:{get_column_letter(num_cols)}1')
+    c = ws['A1']; c.value = f'  {title}'
+    c.fill = fill(HDR_BG); c.font = Font(name='Calibri', bold=True, size=14, color=WHITE)
+    c.alignment = Alignment(horizontal='left', vertical='center')
+    ws.row_dimensions[2].height = 16
+    ws.merge_cells(f'A2:{get_column_letter(num_cols)}2')
+    c = ws['A2']
+    c.value = (f'  Generated: {datetime.date.today().strftime("%d/%m/%Y")}   |   '
+               f'Total stops: {len(df_out)}   |   Booked: {int(total_booked)}   |   Collected: {int(total_collected)}')
+    c.fill = fill(INFO_BG); c.font = Font(name='Calibri', size=9, color=WHITE, italic=True)
+    c.alignment = Alignment(horizontal='left', vertical='center')
+    ws.row_dimensions[3].height = 18
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(row=3, column=ci, value=h)
+        c.fill = fill(HDR_LIGHT); c.font = font(bold=True, sz=10, color=HDR_BG)
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        c.border = Border(bottom=Side(style='medium', color=INFO_BG))
+    for ri, row in df_out.iterrows():
+        excel_row = ri + 4; ws.row_dimensions[excel_row].height = 13
+        row_fill = fill(ALT) if ri % 2 == 1 else fill(WHITE)
+        for ci, (col, val) in enumerate(row.items(), 1):
+            c = ws.cell(row=excel_row, column=ci, value=val)
+            c.fill = row_fill; c.font = font(sz=9); c.border = thin_border()
+            if col in ('Booked', 'Collected'):
+                c.alignment = Alignment(horizontal='center', vertical='center')
+            elif col == 'Photo URL':
+                c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+                if val and str(val).startswith('http'):
+                    first_url = str(val).split(',')[0].strip()
+                    c.hyperlink = first_url
+                    c.font = Font(name='Calibri', size=9, color='0563C1', underline='single')
+            else:
+                c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+    total_row = len(df_out) + 4; ws.row_dimensions[total_row].height = 16
+    booked_col = headers.index('Booked') + 1
+    collected_col = headers.index('Collected') + 1
+    for ci in range(1, num_cols + 1):
+        c = ws.cell(row=total_row, column=ci)
+        c.fill = fill(TOTAL_BG); c.border = Border(top=Side(style='medium', color=INFO_BG))
+        if ci == 1:
+            c.value = 'TOTALS'; c.font = font(bold=True, sz=10, color=HDR_BG)
+            c.alignment = Alignment(horizontal='left', vertical='center')
+        elif ci in (booked_col, collected_col):
+            c.value = f'=SUM({get_column_letter(ci)}4:{get_column_letter(ci)}{total_row-1})'
+            c.font = font(bold=True, sz=10, color=HDR_BG)
+            c.alignment = Alignment(horizontal='center', vertical='center')
+    ws.column_dimensions['A'].width = min(df_out['Address'].astype(str).str.len().max() + 2, 60)
+    ws.column_dimensions['B'].width = 9
+    ws.column_dimensions['C'].width = 11
+    if 'Photo URL' in headers:
+        single_urls = df_out['Photo URL'].astype(str).str.split(',').explode().str.strip()
+        ws.column_dimensions['D'].width = min(single_urls.str.len().max() + 2, 160)
+    ws.freeze_panes = 'A4'; ws.auto_filter.ref = f'A3:{get_column_letter(num_cols)}3'
+
 def process_burwood(df):
     route_name = df['route'].iloc[0]
     wb = Workbook(); ws = wb.active; ws.title = route_name[:31]
@@ -406,6 +471,107 @@ def process_csv(df):
             pd.to_numeric(df['driver_provided_recipient_notes'], errors='coerce').fillna(0)
         )
         return process_burwood(df), 'woollahra'
+    elif council == 'strathfield':
+        collected = (pd.to_numeric(df['driver_provided_internal_notes'], errors='coerce').fillna(0) +
+                     pd.to_numeric(df['driver_provided_recipient_notes'], errors='coerce').fillna(0)).astype(int)
+        df_out = pd.DataFrame({
+            'Address': df['address'], 'Notes': df['notes'].fillna(''),
+            'Qty Booked': df['qty_booked'].fillna(''), 'Collected': collected,
+            'Photo URL': df['photo_url'].fillna(''),
+        }).reset_index(drop=True)
+        route_name = df['route'].iloc[0]
+        headers = list(df_out.columns); num_cols = len(headers)
+        total_collected = int(df_out['Collected'].sum())
+        wb = Workbook(); ws_s = wb.active; ws_s.title = route_name[:31]
+        ws_s.row_dimensions[1].height = 28
+        ws_s.merge_cells(f'A1:{get_column_letter(num_cols)}1')
+        c = ws_s['A1']; c.value = f'  {route_name}'
+        c.fill = fill(GRN_DARK); c.font = Font(name='Calibri', bold=True, size=14, color=WHITE)
+        c.alignment = Alignment(horizontal='left', vertical='center')
+        ws_s.row_dimensions[2].height = 16
+        ws_s.merge_cells(f'A2:{get_column_letter(num_cols)}2')
+        c = ws_s['A2']
+        c.value = (f'  Generated: {datetime.date.today().strftime("%d/%m/%Y")}   |   '
+                   f'Total stops: {len(df_out)}   |   Total collected: {total_collected}')
+        c.fill = fill(GRN_MID); c.font = Font(name='Calibri', size=9, color=WHITE, italic=True)
+        c.alignment = Alignment(horizontal='left', vertical='center')
+        ws_s.row_dimensions[3].height = 18
+        for ci, h in enumerate(headers, 1):
+            c = ws_s.cell(row=3, column=ci, value=h)
+            c.fill = fill(GRN_LIGHT); c.font = font(bold=True, sz=10, color=GRN_DARK)
+            c.alignment = Alignment(horizontal='center', vertical='center')
+            c.border = Border(bottom=Side(style='medium', color=GRN_MID))
+        for ri, row in df_out.iterrows():
+            excel_row = ri + 4; ws_s.row_dimensions[excel_row].height = 13
+            row_fill = fill(GRN_ALT) if ri % 2 == 1 else fill(WHITE)
+            for ci, (col, val) in enumerate(row.items(), 1):
+                c = ws_s.cell(row=excel_row, column=ci, value=val)
+                c.fill = row_fill; c.font = font(sz=9); c.border = thin_border('C8E6C9')
+                if col in ('Collected', 'Qty Booked'):
+                    c.alignment = Alignment(horizontal='center', vertical='center')
+                elif col == 'Photo URL':
+                    c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+                    if val and str(val).startswith('http'):
+                        first_url = str(val).split(',')[0].strip()
+                        c.hyperlink = first_url
+                        c.font = Font(name='Calibri', size=9, color='0563C1', underline='single')
+                else:
+                    c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+        total_row = len(df_out) + 4; ws_s.row_dimensions[total_row].height = 16
+        collected_col = headers.index('Collected') + 1
+        for ci in range(1, num_cols + 1):
+            c = ws_s.cell(row=total_row, column=ci)
+            c.fill = fill(TOTAL_BG); c.border = Border(top=Side(style='medium', color=GRN_MID))
+            if ci == 1:
+                c.value = 'TOTALS'; c.font = font(bold=True, sz=10, color=GRN_DARK)
+                c.alignment = Alignment(horizontal='left', vertical='center')
+            elif ci == collected_col:
+                c.value = f'=SUM({get_column_letter(ci)}4:{get_column_letter(ci)}{total_row-1})'
+                c.font = font(bold=True, sz=10, color=GRN_DARK)
+                c.alignment = Alignment(horizontal='center', vertical='center')
+        ws_s.column_dimensions['A'].width = min(df_out['Address'].astype(str).str.len().max() + 2, 60)
+        ws_s.column_dimensions['B'].width = 35
+        ws_s.column_dimensions['C'].width = 11
+        ws_s.column_dimensions['D'].width = 11
+        single_urls = df_out['Photo URL'].astype(str).str.split(',').explode().str.strip()
+        ws_s.column_dimensions['E'].width = min(single_urls.str.len().max() + 2, 160)
+        ws_s.freeze_panes = 'A4'; ws_s.auto_filter.ref = f'A3:{get_column_letter(num_cols)}3'
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+        return [(buf, f'{route_name}.xlsx', len(df_out))], 'strathfield'
+    elif council == 'bankstown':
+        import re as _re
+        def _is_ipad(v):
+            m = _re.match(r'Mattress:\s*(\d+)\s*-\s*Actual:\s*(\d+)', str(v).strip(), _re.IGNORECASE)
+            return bool(m) and int(m.group(2)) == 0
+        def _is_extra(v):
+            v = str(v).strip()
+            if _re.match(r'^\d+$', v): return True
+            m = _re.match(r'Mattress:\s*(\d+)\s*-\s*Actual:\s*(\d+)', v, _re.IGNORECASE)
+            return bool(m) and int(m.group(2)) > 0
+        def _get_booked(v):
+            m = _re.match(r'Mattress:\s*(\d+)\s*-\s*Actual:\s*(\d+)', str(v).strip(), _re.IGNORECASE)
+            if m: return int(m.group(1))
+            try: return int(float(str(v).strip()))
+            except: return 0
+        route_name = df['route'].iloc[0]
+        clean = _re.sub(r'^[A-Za-z]+\s+', '', route_name)
+        extra_name = _re.sub(r'\s*iPad\s*', ' ', clean).strip()
+        def make_out(df_sub):
+            booked = df_sub['qty_booked'].apply(_get_booked)
+            collected = (pd.to_numeric(df_sub['driver_provided_internal_notes'], errors='coerce').fillna(0) +
+                         pd.to_numeric(df_sub['driver_provided_recipient_notes'], errors='coerce').fillna(0)).astype(int)
+            return pd.DataFrame({'Address': df_sub['address'].values, 'Booked': booked.values,
+                                  'Collected': collected.values, 'Photo URL': df_sub['photo_url'].fillna('').values})
+        df_i = df[df['qty_booked'].apply(_is_ipad)].copy().reset_index(drop=True)
+        df_e = df[df['qty_booked'].apply(_is_extra)].copy().reset_index(drop=True)
+        results = []
+        for df_sub, name, ltype in [(df_i, route_name, 'ipad'), (df_e, extra_name+' Extra', 'extra')]:
+            df_out = make_out(df_sub)
+            wb = Workbook(); ws_b = wb.active; ws_b.title = name[:31]
+            build_bankstown(ws_b, df_out, name, ltype)
+            buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+            results.append((buf, f'{name}.xlsx', len(df_sub)))
+        return results, 'bankstown'
     elif council == 'penrith':
         df = df.copy()
         df['driver_provided_internal_notes'] = (
