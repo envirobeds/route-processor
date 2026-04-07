@@ -456,7 +456,74 @@ def process_burwood(df):
 
 def process_csv(df):
     council = detect_council(df)
-    if council == 'randwick': return process_randwick(df), 'randwick'
+    if council == 'randwick':
+        if re.search(r'Zone\s+\d+', df['route'].iloc[0], re.IGNORECASE):
+            df = df.copy()
+            df['driver_provided_internal_notes'] = (
+                pd.to_numeric(df['driver_provided_internal_notes'], errors='coerce').fillna(0) +
+                pd.to_numeric(df['driver_provided_recipient_notes'], errors='coerce').fillna(0)
+            )
+            route_name = df['route'].iloc[0]
+            col_map_z = {'address':'Address','driver_provided_internal_notes':'Collected',
+                         'photo_url':'Photo URL','tracking_url':'Tracking Link'}
+            df_out = df[list(col_map_z.keys())].rename(columns=col_map_z).copy()
+            headers = list(df_out.columns); num_cols = len(headers)
+            total_collected = pd.to_numeric(df_out['Collected'], errors='coerce').fillna(0).sum()
+            wb = Workbook(); ws_z = wb.active; ws_z.title = route_name[:31]
+            ws_z.row_dimensions[1].height = 28
+            ws_z.merge_cells(f'A1:{get_column_letter(num_cols)}1')
+            c = ws_z['A1']; c.value = f'  {route_name}'
+            c.fill = fill(NAVY); c.font = Font(name='Calibri', bold=True, size=14, color=WHITE)
+            c.alignment = Alignment(horizontal='left', vertical='center')
+            ws_z.row_dimensions[2].height = 16
+            ws_z.merge_cells(f'A2:{get_column_letter(num_cols)}2')
+            c = ws_z['A2']
+            c.value = (f'  Generated: {datetime.date.today().strftime("%d/%m/%Y")}   |   '
+                       f'Total stops: {len(df_out)}   |   Total collected: {int(total_collected)}')
+            c.fill = fill(MID_BLUE); c.font = Font(name='Calibri', size=9, color=WHITE, italic=True)
+            c.alignment = Alignment(horizontal='left', vertical='center')
+            ws_z.row_dimensions[3].height = 18
+            for ci, h in enumerate(headers, 1):
+                c = ws_z.cell(row=3, column=ci, value=h)
+                c.fill = fill(LIGHT_BLUE); c.font = font(bold=True, sz=10, color=NAVY)
+                c.alignment = Alignment(horizontal='center', vertical='center')
+                c.border = Border(bottom=Side(style='medium', color=MID_BLUE))
+            for ri, row in df_out.iterrows():
+                excel_row = ri + 4; ws_z.row_dimensions[excel_row].height = 13
+                row_fill = fill(ALT_ROW) if ri % 2 == 1 else fill(WHITE)
+                for ci, (col, val) in enumerate(row.items(), 1):
+                    c = ws_z.cell(row=excel_row, column=ci, value=val)
+                    c.fill = row_fill; c.font = font(sz=9); c.border = thin_border()
+                    if col == 'Collected':
+                        c.alignment = Alignment(horizontal='center', vertical='center')
+                    elif col in ('Photo URL', 'Tracking Link'):
+                        c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+                        if val and str(val).startswith('http'):
+                            c.hyperlink = str(val).split(',')[0].strip()
+                            c.font = Font(name='Calibri', size=9, color='0563C1', underline='single')
+                    else:
+                        c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+            total_row = len(df_out) + 4; ws_z.row_dimensions[total_row].height = 16
+            collected_col = headers.index('Collected') + 1
+            for ci in range(1, num_cols + 1):
+                c = ws_z.cell(row=total_row, column=ci)
+                c.fill = fill(TOTAL_BG); c.border = Border(top=Side(style='medium', color=MID_BLUE))
+                if ci == 1:
+                    c.value = 'TOTALS'; c.font = font(bold=True, sz=10, color=NAVY)
+                    c.alignment = Alignment(horizontal='left', vertical='center')
+                elif ci == collected_col:
+                    c.value = f'=SUM({get_column_letter(ci)}4:{get_column_letter(ci)}{total_row-1})'
+                    c.font = font(bold=True, sz=10, color=NAVY)
+                    c.alignment = Alignment(horizontal='center', vertical='center')
+            ws_z.column_dimensions['A'].width = min(df_out['Address'].astype(str).str.len().max() + 2, 60)
+            ws_z.column_dimensions['B'].width = 11
+            single_urls = df_out['Photo URL'].astype(str).str.split(',').explode().str.strip()
+            ws_z.column_dimensions['C'].width = min(single_urls.str.len().max() + 2, 160)
+            ws_z.column_dimensions['D'].width = 40
+            ws_z.freeze_panes = 'A4'; ws_z.auto_filter.ref = f'A3:{get_column_letter(num_cols)}3'
+            buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+            return [(buf, f'{route_name}.xlsx', len(df_out))], 'randwick_zone'
+        return process_randwick(df), 'randwick'
     elif council == 'burwood':
         df = df.copy()
         df['driver_provided_internal_notes'] = (
