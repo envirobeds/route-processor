@@ -206,6 +206,12 @@ def build_burwood(ws, df_data, route_name):
             c.fill = row_fill; c.font = font(sz=9); c.border = thin_border('C8E6C9')
             if col == 'Collected':
                 c.alignment = Alignment(horizontal='center', vertical='center')
+            elif col == 'Photo URL':
+                c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+                if val and str(val).startswith('http'):
+                    first_url = str(val).split(',')[0].strip()
+                    c.hyperlink = first_url
+                    c.font = Font(name='Calibri', size=9, color='0563C1', underline='single')
             else:
                 c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
     total_row = len(df_out) + 4; ws.row_dimensions[total_row].height = 16
@@ -223,7 +229,7 @@ def build_burwood(ws, df_data, route_name):
     ws.column_dimensions['A'].width = col_width(df_out['Address'], 'Address', cap=60)
     ws.column_dimensions['B'].width = 11
     single_urls = df_out['Photo URL'].astype(str).str.split(',').explode().str.strip()
-    ws.column_dimensions['C'].width = min(single_urls.str.len().max() + 2, 120)
+    ws.column_dimensions['C'].width = min(single_urls.str.len().max() + 2, 160)
     ws.freeze_panes = 'A4'; ws.auto_filter.ref = f'A3:{get_column_letter(num_cols)}3'
 
 def process_randwick(df):
