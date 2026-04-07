@@ -43,7 +43,7 @@ def clean_date(val):
 
 def extract_suburb_from_address(address):
     address = str(address)
-    m = re.search(r',\s*([A-Za-z\s]+),\s*(?:Randwick|Burwood)\s*City\s*Council', address, re.IGNORECASE)
+    m = re.search(r',\s*([A-Za-z\s]+),\s*(?:Randwick|Burwood|Woollahra Municipal)\s*Council', address, re.IGNORECASE)
     if m: return m.group(1).strip().title()
     m = re.search(r'\b([A-Z]+(?:\s+[A-Z]+)?)\s*,\s*NSW', address)
     if m: return m.group(1).strip().title()
@@ -59,6 +59,7 @@ def extract_suburb(row):
 def detect_council(df):
     route = str(df['route'].iloc[0]).lower()
     if 'burwood' in route: return 'burwood'
+    if 'woollahra' in route: return 'woollahra'
     if 'randwick' in route: return 'randwick'
     return 'unknown'
 
@@ -178,7 +179,7 @@ def build_booked(ws, df_data, route_name, date_collected):
 def build_burwood(ws, df_data, route_name):
     df_out = df_data[list(col_map_burwood.keys())].rename(columns=col_map_burwood).copy()
     headers = list(col_map_burwood.values()); num_cols = len(headers)
-    total_collected = df_out['Collected'].fillna(0).astype(float).sum()
+    total_collected = pd.to_numeric(df_out['Collected'], errors='coerce').fillna(0).sum()
     ws.row_dimensions[1].height = 28
     ws.merge_cells(f'A1:{get_column_letter(num_cols)}1')
     c = ws['A1']; c.value = f'  {route_name}'
@@ -263,7 +264,20 @@ def process_burwood(df):
 def process_csv(df):
     council = detect_council(df)
     if council == 'randwick': return process_randwick(df), 'randwick'
-    elif council == 'burwood': return process_burwood(df), 'burwood'
+    elif council == 'burwood':
+        df = df.copy()
+        df['driver_provided_internal_notes'] = (
+            pd.to_numeric(df['driver_provided_internal_notes'], errors='coerce').fillna(0) +
+            pd.to_numeric(df['driver_provided_recipient_notes'], errors='coerce').fillna(0)
+        )
+        return process_burwood(df), 'burwood'
+    elif council == 'woollahra':
+        df = df.copy()
+        df['driver_provided_internal_notes'] = (
+            pd.to_numeric(df['driver_provided_internal_notes'], errors='coerce').fillna(0) +
+            pd.to_numeric(df['driver_provided_recipient_notes'], errors='coerce').fillna(0)
+        )
+        return process_burwood(df), 'woollahra'
     else: raise ValueError(f'Unknown council: {df["route"].iloc[0]}')
 
 # ── UI ────────────────────────────────────────────────────────────────────────
