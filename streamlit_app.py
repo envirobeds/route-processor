@@ -178,7 +178,7 @@ def build_booked(ws, df_data, route_name, date_collected):
 def build_burwood(ws, df_data, route_name):
     df_out = df_data[list(col_map_burwood.keys())].rename(columns=col_map_burwood).copy()
     headers = list(col_map_burwood.values()); num_cols = len(headers)
-    total_collected = pd.to_numeric(df_out['Collected'], errors='coerce').fillna(0).sum()
+    total_collected = df_out['Collected'].fillna(0).astype(float).sum()
     ws.row_dimensions[1].height = 28
     ws.merge_cells(f'A1:{get_column_letter(num_cols)}1')
     c = ws['A1']; c.value = f'  {route_name}'
